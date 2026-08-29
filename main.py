@@ -197,9 +197,9 @@ def _new_items_text(keyword: str, items: list[MercariItem], max_push_items: int)
 
 def _refresh_text(keyword: str, items: list[MercariItem]) -> str:
     if not items:
-        return f"「{keyword}」刷新完成，没有找到在售商品；整点监控不受影响。"
+        return f"「{keyword}」刷新完成，没有发现新品；整点监控不受影响。"
     return _items_text(
-        f"🔄 Mercari「{keyword}」刷新完成，共 {len(items)} 个商品（不影响整点监控）",
+        f"🔄 Mercari「{keyword}」发现 {len(items)} 个新品（不影响整点监控）",
         items,
         len(items),
     )

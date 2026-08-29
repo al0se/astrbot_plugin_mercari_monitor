@@ -43,3 +43,16 @@ def test_check_all_coalesces_one_keyword_and_keeps_users_separate(tmp_path):
         ("Telegram:PrivateMessage:2", "camera"),
     }
     assert asyncio.run(monitor.check_all(NOW + timedelta(minutes=1))) == {}
+
+
+def test_manual_refresh_returns_only_unseen_items_without_delaying_hourly_check(tmp_path):
+    factory = UserRepositoryFactory(tmp_path / "users")
+    repository = factory.for_umo("Telegram:PrivateMessage:1")
+    repository.subscribe("camera", "Telegram:PrivateMessage:1", NOW)
+    repository.save_scan("camera", [MercariItem("baseline", "Baseline", 100, "https://example.com/baseline", NOW)], NOW)
+    before = repository.get_subscription("camera")
+    monitor = MonitoringService(factory, FakeSearchService(), result_limit=50)
+
+    assert asyncio.run(monitor.refresh_subscription(repository, "camera"))[0].id == "new"
+    assert asyncio.run(monitor.refresh_subscription(repository, "camera")) == []
+    assert repository.get_subscription("camera").last_check_time == before.last_check_time
