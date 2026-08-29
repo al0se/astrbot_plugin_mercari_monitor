@@ -92,7 +92,7 @@ class MercariMonitor(Star):
             except MercariUpstreamError:
                 yield event.plain_result("Mercari 查询暂时失败，请稍后重试。")
                 return
-            yield event.plain_result(_new_items_text(keyword, new_items, int(self.config["max_push_items"])))
+            yield event.plain_result(_new_items_text(keyword, new_items))
         elif action in {"订阅列表", "列表"}:
             subscriptions = repository.subscriptions()
             yield event.plain_result(_subscription_list_text(subscriptions))
@@ -120,7 +120,7 @@ class MercariMonitor(Star):
                     continue
                 await self.context.send_message(
                     umo,
-                    MessageChain().message(_new_items_text(keyword, items, int(self.config["max_push_items"]))),
+                    MessageChain().message(_new_items_text(keyword, items)),
                 )
         except Exception:
             logger.exception("Mercari scheduled check failed")
@@ -137,8 +137,6 @@ class MercariMonitor(Star):
     def _validate_config(self) -> None:
         if not 10 <= int(self.config["search_result_limit"]) <= 100:
             raise ValueError("search_result_limit must be between 10 and 100")
-        if int(self.config["max_push_items"]) < 1:
-            raise ValueError("max_push_items must be at least 1")
 
 
 def _seconds_until_next_beijing_hour(now: datetime | None = None) -> float:
@@ -165,10 +163,10 @@ def _search_text(keyword: str, items: list[MercariItem]) -> str:
     return _items_text(f"🔎 Mercari「{keyword}」搜索结果", items, len(items))
 
 
-def _new_items_text(keyword: str, items: list[MercariItem], limit: int) -> str:
+def _new_items_text(keyword: str, items: list[MercariItem]) -> str:
     if not items:
         return f"「{keyword}」本次没有发现新品。"
-    return _items_text(f"🔔 Mercari「{keyword}」发现 {len(items)} 个新品", items, limit)
+    return _items_text(f"🔔 Mercari「{keyword}」发现 {len(items)} 个新品", items, len(items))
 
 
 def _items_text(title: str, items: list[MercariItem], limit: int) -> str:
