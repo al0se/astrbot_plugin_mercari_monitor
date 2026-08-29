@@ -7,8 +7,8 @@ from collections import defaultdict
 from datetime import datetime, timezone
 from typing import Callable
 
-from mercari_service import MercariItem, MercariSearchService
-from repository import UserRepository, UserRepositoryFactory
+from .mercari_service import MercariItem, MercariSearchService
+from .repository import UserRepository, UserRepositoryFactory
 
 
 class MonitoringService:

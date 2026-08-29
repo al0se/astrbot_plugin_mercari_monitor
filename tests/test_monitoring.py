@@ -1,9 +1,17 @@
 import asyncio
 from datetime import datetime, timedelta, timezone
+from pathlib import Path
+import sys
+import types
 
-from mercari_service import MercariItem
-from monitoring import MonitoringService
-from repository import UserRepositoryFactory
+PACKAGE_NAME = "mercari_plugin_under_test"
+package = types.ModuleType(PACKAGE_NAME)
+package.__path__ = [str(Path(__file__).resolve().parents[1])]
+sys.modules.setdefault(PACKAGE_NAME, package)
+
+from mercari_plugin_under_test.mercari_service import MercariItem
+from mercari_plugin_under_test.monitoring import MonitoringService
+from mercari_plugin_under_test.repository import UserRepositoryFactory
 
 
 NOW = datetime(2026, 8, 29, tzinfo=timezone.utc)

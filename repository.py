@@ -8,7 +8,7 @@ from pathlib import Path
 import hashlib
 import sqlite3
 
-from mercari_service import MercariItem
+from .mercari_service import MercariItem
 
 
 @dataclass(frozen=True)

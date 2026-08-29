@@ -12,9 +12,9 @@ from astrbot.api.event import AstrMessageEvent, MessageChain, filter
 from astrbot.api.star import Context, Star
 from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 
-from mercari_service import MercariItem, MercariSearchService, MercariUpstreamError
-from monitoring import MonitoringService
-from repository import UserRepository, UserRepositoryFactory
+from .mercari_service import MercariItem, MercariSearchService, MercariUpstreamError
+from .monitoring import MonitoringService
+from .repository import UserRepository, UserRepositoryFactory
 
 BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
 

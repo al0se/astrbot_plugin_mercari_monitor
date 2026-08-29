@@ -9,7 +9,7 @@ from typing import Any
 
 import requests
 
-import patches  # noqa: F401  # Install Mercari's DPoP/retry compatibility patch first.
+from . import patches  # noqa: F401  # Install Mercari's DPoP/retry compatibility patch first.
 from mercari import MercariOrder, MercariSearchStatus, MercariSort, search
 
 
