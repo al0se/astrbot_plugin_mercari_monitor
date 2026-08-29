@@ -1,10 +1,4 @@
 {
-  "check_interval_minutes": {
-    "type": "int",
-    "description": "检查间隔（分钟）",
-    "hint": "所有启用订阅每隔该时长检查一次；默认 60 分钟。",
-    "default": 60
-  },
   "search_result_limit": {
     "type": "int",
     "description": "每个关键词检查的商品数",

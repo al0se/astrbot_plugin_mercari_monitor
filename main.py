@@ -5,6 +5,7 @@ from __future__ import annotations
 import asyncio
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from zoneinfo import ZoneInfo
 
 from astrbot.api import AstrBotConfig, logger
 from astrbot.api.event import AstrMessageEvent, MessageChain, filter
@@ -14,6 +15,8 @@ from astrbot.core.utils.astrbot_path import get_astrbot_data_path
 from mercari_service import MercariItem, MercariSearchService, MercariUpstreamError
 from monitoring import MonitoringService
 from repository import UserRepository, UserRepositoryFactory
+
+BEIJING_TIMEZONE = ZoneInfo("Asia/Shanghai")
 
 
 class MercariMonitor(Star):
@@ -104,14 +107,13 @@ class MercariMonitor(Star):
     async def _scheduler_loop(self) -> None:
         if bool(self.config["check_on_startup"]):
             await self._run_scheduled_check()
-        interval = timedelta(minutes=int(self.config["check_interval_minutes"]))
         while True:
-            await asyncio.sleep(interval.total_seconds())
+            await asyncio.sleep(_seconds_until_next_beijing_hour())
             await self._run_scheduled_check()
 
     async def _run_scheduled_check(self) -> None:
         try:
-            due_before = datetime.now(timezone.utc) - timedelta(minutes=int(self.config["check_interval_minutes"]))
+            due_before = datetime.now(timezone.utc) - timedelta(hours=1)
             results = await self.monitor.check_all(due_before)
             for (umo, keyword), items in results.items():
                 if not items:
@@ -135,10 +137,15 @@ class MercariMonitor(Star):
     def _validate_config(self) -> None:
         if not 10 <= int(self.config["search_result_limit"]) <= 100:
             raise ValueError("search_result_limit must be between 10 and 100")
-        if int(self.config["check_interval_minutes"]) < 1:
-            raise ValueError("check_interval_minutes must be at least 1")
         if int(self.config["max_push_items"]) < 1:
             raise ValueError("max_push_items must be at least 1")
+
+
+def _seconds_until_next_beijing_hour(now: datetime | None = None) -> float:
+    """Return the delay until the next full hour in the Asia/Shanghai timezone."""
+    current = now.astimezone(BEIJING_TIMEZONE) if now else datetime.now(BEIJING_TIMEZONE)
+    next_hour = current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
+    return max((next_hour - current).total_seconds(), 0.0)
 
 
 def _help_text() -> str:

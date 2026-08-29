@@ -1,6 +1,6 @@
 # AstrBot Mercari 新品监控插件
 
-面向**私聊用户**的 Mercari 日本站关键词订阅插件：每位用户使用一份独立 SQLite 数据库，每小时只推送从未见过的新品；不会推送降价或重复商品。
+面向**私聊用户**的 Mercari 日本站关键词订阅插件：每位用户使用一份独立 SQLite 数据库，按北京时间每个整点检查并推送从未见过的新品；不会推送降价或重复商品。
 
 ## 安装
 
@@ -18,7 +18,6 @@ data/plugin_data/astrbot_plugin_mercari_monitor/users/<SHA-256(UMO)>.db
 
 在 WebUI 的插件配置中调整：
 
-- `check_interval_minutes`：检查间隔，默认 `60`。
 - `search_result_limit`：每个关键词读取的最新商品数，默认 `50`。
 - `max_push_items`：一次消息展开的新品数，默认 `5`；未展开商品仍记为已见。
 - `check_on_startup`：启动后是否立即运行一次检查，默认关闭。
@@ -37,7 +36,7 @@ data/plugin_data/astrbot_plugin_mercari_monitor/users/<SHA-256(UMO)>.db
 
 ## 定时推送机制
 
-插件启动时在 AstrBot 的事件循环创建一个调度任务。任务每隔配置的时长汇总所有到期订阅，同一关键词只请求一次 Mercari，再分别和每个用户的独立库比对。对发现新品的用户，插件使用已保存的 `unified_msg_origin` 直接调用 AstrBot 的 `context.send_message()` 私聊推送。
+插件启动时在 AstrBot 的事件循环创建一个调度任务。任务固定在 `Asia/Shanghai` 时区的每个整点执行，例如 10:00、11:00、12:00。每轮会汇总所有订阅，同一关键词只请求一次 Mercari，再分别和每个用户的独立库比对。对发现新品的用户，插件使用已保存的 `unified_msg_origin` 直接调用 AstrBot 的 `context.send_message()` 私聊推送。
 
 因此不经过 LLM，也不是由插件发送一条“通知 Bot”的中间消息。AstrBot 进程需要持续运行；进程重启后插件会重新创建调度任务，SQLite 中的订阅和已见记录会保留。
 
