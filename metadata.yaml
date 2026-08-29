@@ -3,9 +3,13 @@ display_name: Mercari 新品监控
 desc: 私聊用户的 Mercari 日本站关键词新品订阅与每小时推送。
 short_desc: 订阅 Mercari 关键词并每小时推送新品。
 version: 0.1.0
-author: local
-repo: ""
+author: al0se
+repo: https://github.com/al0se/astrbot_plugin_mercari_monitor
 astrbot_version: ">=4.9.2,<5"
+tags:
+  - mercari
+  - shopping
+  - monitor
 support_platforms:
   - aiocqhttp
   - telegram
