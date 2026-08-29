@@ -23,10 +23,12 @@ class MonitoringService:
         return len(items)
 
     async def refresh_subscription(self, repository: UserRepository, keyword: str) -> list[MercariItem]:
+        """Save a manual snapshot without changing the hourly monitor baseline."""
         if repository.get_subscription(keyword) is None:
             raise KeyError(keyword)
         items = await self._search(keyword)
-        return repository.save_scan(keyword, items, datetime.now(timezone.utc))
+        repository.save_manual_refresh(keyword, items, datetime.now(timezone.utc))
+        return items
 
     async def search_now(self, keyword: str) -> list[MercariItem]:
         return await self._search(keyword)

@@ -32,11 +32,13 @@ class MercariMonitor(Star):
             int(self.config["search_result_limit"]),
         )
         self._scheduler_task: asyncio.Task | None = None
+        self._next_scheduled_at: datetime | None = None
 
     @filter.on_astrbot_loaded()
     async def on_astrbot_loaded(self):
         """Start the worker only after AstrBot's event loop and adapters are ready."""
         self._scheduler_task = asyncio.create_task(self._scheduler_loop())
+        self._scheduler_task.add_done_callback(self._report_scheduler_exit)
 
     @filter.command("mercari")
     @filter.event_message_type(filter.EventMessageType.PRIVATE_MESSAGE)
@@ -92,10 +94,12 @@ class MercariMonitor(Star):
             except MercariUpstreamError:
                 yield event.plain_result("Mercari 查询暂时失败，请稍后重试。")
                 return
-            yield event.plain_result(_new_items_text(keyword, new_items, int(self.config["max_push_items"])))
+            yield event.plain_result(_refresh_text(keyword, new_items))
         elif action in {"订阅列表", "列表"}:
             subscriptions = repository.subscriptions()
             yield event.plain_result(_subscription_list_text(subscriptions))
+        elif action == "状态":
+            yield event.plain_result(_status_text(self._next_scheduled_at, repository.subscriptions()))
         elif action in {"取消订阅", "取消"}:
             if not keyword:
                 yield event.plain_result("用法：/mercari 取消订阅 <关键词>")
@@ -105,25 +109,31 @@ class MercariMonitor(Star):
             yield event.plain_result(_help_text())
 
     async def _scheduler_loop(self) -> None:
+        logger.info("Mercari hourly scheduler started")
         if bool(self.config["check_on_startup"]):
             await self._run_scheduled_check()
         while True:
+            self._next_scheduled_at = _next_beijing_hour()
+            logger.info("Mercari next scheduled check: %s", self._next_scheduled_at.isoformat())
             await asyncio.sleep(_seconds_until_next_beijing_hour())
-            await self._run_scheduled_check()
+            try:
+                await self._run_scheduled_check()
+            except asyncio.CancelledError:
+                raise
+            except Exception:
+                logger.exception("Mercari hourly scheduler failed; retrying in 60 seconds")
+                await asyncio.sleep(60)
 
     async def _run_scheduled_check(self) -> None:
-        try:
-            due_before = datetime.now(timezone.utc) - timedelta(hours=1)
-            results = await self.monitor.check_all(due_before)
-            for (umo, keyword), items in results.items():
-                if not items:
-                    continue
-                await self.context.send_message(
-                    umo,
-                    MessageChain().message(_new_items_text(keyword, items, int(self.config["max_push_items"]))),
-                )
-        except Exception:
-            logger.exception("Mercari scheduled check failed")
+        logger.info("Mercari scheduled check started")
+        due_before = datetime.now(timezone.utc) - timedelta(hours=1)
+        results = await self.monitor.check_all(due_before)
+        for (umo, keyword), items in results.items():
+            await self.context.send_message(
+                umo,
+                MessageChain().message(_new_items_text(keyword, items, int(self.config["max_push_items"]))),
+            )
+        logger.info("Mercari scheduled check completed; pushed to %d keyword subscriptions", len(results))
 
     async def terminate(self) -> None:
         if self._scheduler_task is None:
@@ -133,6 +143,14 @@ class MercariMonitor(Star):
             await self._scheduler_task
         except asyncio.CancelledError:
             pass
+
+    def _report_scheduler_exit(self, task: asyncio.Task) -> None:
+        if task.cancelled():
+            logger.info("Mercari hourly scheduler stopped")
+            return
+        error = task.exception()
+        if error is not None:
+            logger.error("Mercari hourly scheduler exited unexpectedly: %s", error)
 
     def _validate_config(self) -> None:
         if not 10 <= int(self.config["search_result_limit"]) <= 100:
@@ -144,8 +162,12 @@ class MercariMonitor(Star):
 def _seconds_until_next_beijing_hour(now: datetime | None = None) -> float:
     """Return the delay until the next full hour in the Asia/Shanghai timezone."""
     current = now.astimezone(BEIJING_TIMEZONE) if now else datetime.now(BEIJING_TIMEZONE)
-    next_hour = current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
-    return max((next_hour - current).total_seconds(), 0.0)
+    return max((_next_beijing_hour(current) - current).total_seconds(), 0.0)
+
+
+def _next_beijing_hour(now: datetime | None = None) -> datetime:
+    current = now.astimezone(BEIJING_TIMEZONE) if now else datetime.now(BEIJING_TIMEZONE)
+    return current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
 def _help_text() -> str:
@@ -155,6 +177,7 @@ def _help_text() -> str:
         "/mercari 订阅 <关键词>：建立基线并每小时推送新品",
         "/mercari 刷新 <关键词>：立即检查本订阅的新商品",
         "/mercari 订阅列表：查看你的订阅",
+        "/mercari 状态：查看下次整点检查时间",
         "/mercari 取消订阅 <关键词>：停止推送",
     ])
 
@@ -172,6 +195,16 @@ def _new_items_text(keyword: str, items: list[MercariItem], max_push_items: int)
     return _items_text(f"🔔 Mercari「{keyword}」发现 {len(items)} 个新品", items, limit)
 
 
+def _refresh_text(keyword: str, items: list[MercariItem]) -> str:
+    if not items:
+        return f"「{keyword}」刷新完成，没有找到在售商品；整点监控不受影响。"
+    return _items_text(
+        f"🔄 Mercari「{keyword}」刷新完成，共 {len(items)} 个商品（不影响整点监控）",
+        items,
+        len(items),
+    )
+
+
 def _items_text(title: str, items: list[MercariItem], limit: int) -> str:
     lines = [title]
     for index, item in enumerate(items[:limit], start=1):
@@ -185,3 +218,8 @@ def _subscription_list_text(subscriptions) -> str:
     if not subscriptions:
         return "你还没有订阅任何关键词。"
     return "你的 Mercari 订阅：\n" + "\n".join(f"- {item.keyword}" for item in subscriptions)
+
+
+def _status_text(next_scheduled_at: datetime | None, subscriptions) -> str:
+    next_time = "尚未启动" if next_scheduled_at is None else next_scheduled_at.strftime("%Y-%m-%d %H:%M:%S 北京时间")
+    return f"定时器下次检查：{next_time}\n当前启用订阅：{len(subscriptions)}"

@@ -54,6 +54,17 @@ class UserRepository:
                 );
                 CREATE INDEX IF NOT EXISTS seen_items_keyword_idx
                     ON seen_items(keyword);
+                CREATE TABLE IF NOT EXISTS manual_refresh_items (
+                    item_id TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    price INTEGER NOT NULL,
+                    url TEXT NOT NULL,
+                    image_url TEXT,
+                    created_time TEXT NOT NULL,
+                    last_refreshed_time TEXT NOT NULL,
+                    PRIMARY KEY (item_id, keyword)
+                );
                 """
             )
 
@@ -121,6 +132,22 @@ class UserRepository:
                 (checked_at.isoformat(), keyword),
             )
         return new_items
+
+    def save_manual_refresh(self, keyword: str, items: list[MercariItem], refreshed_at: datetime) -> None:
+        """Persist a user's manual result snapshot without changing monitoring state."""
+        with self._connect() as connection:
+            for item in items:
+                connection.execute(
+                    """INSERT INTO manual_refresh_items
+                    (item_id, keyword, title, price, url, image_url, created_time, last_refreshed_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(item_id, keyword) DO UPDATE SET
+                        title=excluded.title, price=excluded.price, url=excluded.url,
+                        image_url=excluded.image_url, created_time=excluded.created_time,
+                        last_refreshed_time=excluded.last_refreshed_time""",
+                    (item.id, keyword, item.title, item.price, item.url, item.image_url,
+                     item.created_time.isoformat(), refreshed_at.isoformat()),
+                )
 
 
 class UserRepositoryFactory:
