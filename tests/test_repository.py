@@ -44,6 +44,7 @@ def test_manual_refresh_marks_items_seen_without_changing_hourly_check_time(tmp_
     before = repository.get_subscription("camera")
 
     repository.save_manual_refresh("camera", [item("manual")], NOW)
+    repository.mark_seen_items("camera", [item("manual")], NOW)
 
     after = repository.get_subscription("camera")
     assert after is not None and before is not None
