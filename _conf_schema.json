@@ -5,6 +5,12 @@
     "hint": "按最新上架顺序读取的最大商品数，范围 10 到 100。",
     "default": 50
   },
+  "max_push_items": {
+    "type": "int",
+    "description": "单次最多推送的新品数",
+    "hint": "设为 0 时不限制，完整推送本轮新品；设为正整数 X 时只发送前 X 条，其余新品仍会记录为已见。",
+    "default": 0
+  },
   "check_on_startup": {
     "type": "bool",
     "description": "启动后立即检查",

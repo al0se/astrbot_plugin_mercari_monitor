@@ -19,6 +19,7 @@ data/plugin_data/astrbot_plugin_mercari_monitor/users/<SHA-256(UMO)>.db
 在 WebUI 的插件配置中调整：
 
 - `search_result_limit`：每个关键词读取的最新商品数，默认 `50`。
+- `max_push_items`：单次最多推送的新品数；默认 `0` 表示完整推送，设为正整数时只推送前 X 条，未展开商品仍会记为已见。
 - `check_on_startup`：启动后是否立即运行一次检查，默认关闭。
 
 ## 指令
@@ -31,7 +32,7 @@ data/plugin_data/astrbot_plugin_mercari_monitor/users/<SHA-256(UMO)>.db
 /mercari 取消订阅 <关键词>
 ```
 
-`订阅` 会先将当前搜索结果写入基线，**不会推送历史商品**。之后的定时检查和 `刷新` 都会完整推送本轮发现的新品。
+`订阅` 会先将当前搜索结果写入基线，**不会推送历史商品**。之后的定时检查和 `刷新` 会按 `max_push_items` 配置推送本轮新品。
 
 ## 定时推送机制
 
