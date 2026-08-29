@@ -17,6 +17,7 @@ class Subscription:
     unified_msg_origin: str
     created_time: datetime
     last_check_time: datetime | None
+    last_scheduled_slot: datetime | None
 
 
 class UserRepository:
@@ -39,7 +40,8 @@ class UserRepository:
                     unified_msg_origin TEXT NOT NULL,
                     enabled INTEGER NOT NULL DEFAULT 1,
                     created_time TEXT NOT NULL,
-                    last_check_time TEXT
+                    last_check_time TEXT,
+                    last_scheduled_slot TEXT
                 );
                 CREATE TABLE IF NOT EXISTS seen_items (
                     item_id TEXT NOT NULL,
@@ -67,6 +69,9 @@ class UserRepository:
                 );
                 """
             )
+            columns = {row["name"] for row in connection.execute("PRAGMA table_info(subscriptions)")}
+            if "last_scheduled_slot" not in columns:
+                connection.execute("ALTER TABLE subscriptions ADD COLUMN last_scheduled_slot TEXT")
 
     def subscribe(self, keyword: str, umo: str, now: datetime) -> bool:
         with self._connect() as connection:
@@ -82,7 +87,8 @@ class UserRepository:
                 )
             else:
                 connection.execute(
-                    "UPDATE subscriptions SET enabled = 1, unified_msg_origin = ?, last_check_time = NULL WHERE keyword = ?",
+                    """UPDATE subscriptions SET enabled = 1, unified_msg_origin = ?,
+                    last_check_time = NULL, last_scheduled_slot = NULL WHERE keyword = ?""",
                     (umo, keyword),
                 )
         return True
@@ -97,14 +103,16 @@ class UserRepository:
     def subscriptions(self) -> list[Subscription]:
         with self._connect() as connection:
             rows = connection.execute(
-                "SELECT keyword, unified_msg_origin, created_time, last_check_time FROM subscriptions WHERE enabled = 1 ORDER BY created_time"
+                """SELECT keyword, unified_msg_origin, created_time, last_check_time, last_scheduled_slot
+                FROM subscriptions WHERE enabled = 1 ORDER BY created_time"""
             ).fetchall()
         return [_subscription_from_row(row) for row in rows]
 
     def get_subscription(self, keyword: str) -> Subscription | None:
         with self._connect() as connection:
             row = connection.execute(
-                "SELECT keyword, unified_msg_origin, created_time, last_check_time FROM subscriptions WHERE keyword = ? AND enabled = 1",
+                """SELECT keyword, unified_msg_origin, created_time, last_check_time, last_scheduled_slot
+                FROM subscriptions WHERE keyword = ? AND enabled = 1""",
                 (keyword,),
             ).fetchone()
         return None if row is None else _subscription_from_row(row)
@@ -116,6 +124,19 @@ class UserRepository:
             connection.execute(
                 "UPDATE subscriptions SET last_check_time = ? WHERE keyword = ?",
                 (checked_at.isoformat(), keyword),
+            )
+        return new_items
+
+    def save_scheduled_scan(
+        self, keyword: str, items: list[MercariItem], scheduled_slot: datetime, checked_at: datetime
+    ) -> list[MercariItem]:
+        """Save one fixed hourly slot and return this user's unseen items."""
+        new_items = self.mark_seen_items(keyword, items, checked_at)
+        with self._connect() as connection:
+            connection.execute(
+                """UPDATE subscriptions SET last_check_time = ?, last_scheduled_slot = ?
+                WHERE keyword = ?""",
+                (checked_at.isoformat(), scheduled_slot.isoformat(), keyword),
             )
         return new_items
 
@@ -177,4 +198,7 @@ def _subscription_from_row(row: sqlite3.Row) -> Subscription:
         unified_msg_origin=row["unified_msg_origin"],
         created_time=datetime.fromisoformat(row["created_time"]),
         last_check_time=(datetime.fromisoformat(row["last_check_time"]) if row["last_check_time"] else None),
+        last_scheduled_slot=(
+            datetime.fromisoformat(row["last_scheduled_slot"]) if row["last_scheduled_slot"] else None
+        ),
     )

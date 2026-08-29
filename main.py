@@ -111,29 +111,31 @@ class MercariMonitor(Star):
     async def _scheduler_loop(self) -> None:
         logger.info("Mercari hourly scheduler started")
         if bool(self.config["check_on_startup"]):
-            await self._run_scheduled_check()
+            await self._run_scheduled_check(_current_beijing_hour())
         while True:
-            self._next_scheduled_at = _next_beijing_hour()
-            logger.info("Mercari next scheduled check: %s", self._next_scheduled_at.isoformat())
-            await asyncio.sleep(_seconds_until_next_beijing_hour())
-            try:
-                await self._run_scheduled_check()
-            except asyncio.CancelledError:
-                raise
-            except Exception:
-                logger.exception("Mercari hourly scheduler failed; retrying in 60 seconds")
-                await asyncio.sleep(60)
+            scheduled_slot = _next_beijing_hour()
+            self._next_scheduled_at = scheduled_slot
+            logger.info("Mercari next scheduled check: %s", scheduled_slot.isoformat())
+            await _sleep_until(scheduled_slot)
+            while True:
+                try:
+                    await self._run_scheduled_check(scheduled_slot)
+                    break
+                except asyncio.CancelledError:
+                    raise
+                except Exception:
+                    logger.exception("Mercari scheduled slot failed; retrying in 60 seconds")
+                    await asyncio.sleep(60)
 
-    async def _run_scheduled_check(self) -> None:
-        logger.info("Mercari scheduled check started")
-        due_before = datetime.now(timezone.utc) - timedelta(hours=1)
-        results = await self.monitor.check_all(due_before)
+    async def _run_scheduled_check(self, scheduled_slot: datetime) -> None:
+        logger.info("Mercari scheduled check started for slot %s", scheduled_slot.isoformat())
+        results = await self.monitor.check_all(scheduled_slot)
         for (umo, keyword), items in results.items():
             await self.context.send_message(
                 umo,
                 MessageChain().message(_new_items_text(keyword, items, int(self.config["max_push_items"]))),
             )
-        logger.info("Mercari scheduled check completed; pushed to %d keyword subscriptions", len(results))
+        logger.info("Mercari scheduled slot completed; pushed to %d keyword subscriptions", len(results))
 
     async def terminate(self) -> None:
         if self._scheduler_task is None:
@@ -170,6 +172,20 @@ def _next_beijing_hour(now: datetime | None = None) -> datetime:
     return current.replace(minute=0, second=0, microsecond=0) + timedelta(hours=1)
 
 
+def _current_beijing_hour(now: datetime | None = None) -> datetime:
+    current = now.astimezone(BEIJING_TIMEZONE) if now else datetime.now(BEIJING_TIMEZONE)
+    return current.replace(minute=0, second=0, microsecond=0)
+
+
+async def _sleep_until(scheduled_slot: datetime) -> None:
+    """Avoid treating a slightly early wake-up as a different hourly batch."""
+    while True:
+        remaining = (scheduled_slot - datetime.now(BEIJING_TIMEZONE)).total_seconds()
+        if remaining <= 0:
+            return
+        await asyncio.sleep(remaining)
+
+
 def _help_text() -> str:
     return "\n".join([
         "Mercari 新品监控（仅私聊）",
@@ -197,9 +213,9 @@ def _new_items_text(keyword: str, items: list[MercariItem], max_push_items: int)
 
 def _refresh_text(keyword: str, items: list[MercariItem]) -> str:
     if not items:
-        return f"「{keyword}」刷新完成，没有发现新品；整点监控不受影响。"
+        return f"「{keyword}」刷新完成，没有发现新品。"
     return _items_text(
-        f"🔄 Mercari「{keyword}」发现 {len(items)} 个新品（不影响整点监控）",
+        f"🔄 Mercari「{keyword}」发现 {len(items)} 个新品",
         items,
         len(items),
     )

@@ -35,14 +35,28 @@ def test_check_all_coalesces_one_keyword_and_keeps_users_separate(tmp_path):
     service = FakeSearchService()
     monitor = MonitoringService(factory, service, result_limit=50)
 
-    result = asyncio.run(monitor.check_all(NOW + timedelta(minutes=1)))
+    result = asyncio.run(monitor.check_all(NOW))
 
     assert service.calls == [("camera", 50)]
     assert set(result) == {
         ("Telegram:PrivateMessage:1", "camera"),
         ("Telegram:PrivateMessage:2", "camera"),
     }
-    assert asyncio.run(monitor.check_all(NOW + timedelta(minutes=1))) == {}
+    assert asyncio.run(monitor.check_all(NOW)) == {}
+
+
+def test_next_hourly_slot_runs_even_if_the_previous_check_finished_after_the_hour(tmp_path):
+    factory = UserRepositoryFactory(tmp_path / "users")
+    repository = factory.for_umo("Telegram:PrivateMessage:1")
+    repository.subscribe("camera", "Telegram:PrivateMessage:1", NOW)
+    repository.save_scheduled_scan("camera", [], NOW, NOW + timedelta(seconds=1))
+    service = FakeSearchService()
+    monitor = MonitoringService(factory, service, result_limit=50)
+
+    result = asyncio.run(monitor.check_all(NOW + timedelta(hours=1)))
+
+    assert set(result) == {("Telegram:PrivateMessage:1", "camera")}
+    assert service.calls == [("camera", 50)]
 
 
 def test_manual_refresh_returns_only_unseen_items_without_delaying_hourly_check(tmp_path):

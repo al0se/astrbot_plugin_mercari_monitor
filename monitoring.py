@@ -33,12 +33,12 @@ class MonitoringService:
     async def search_now(self, keyword: str) -> list[MercariItem]:
         return await self._search(keyword)
 
-    async def check_all(self, due_before: datetime) -> dict[tuple[str, str], list[MercariItem]]:
-        """Return new items keyed by (recipient UMO, keyword), querying each keyword once."""
+    async def check_all(self, scheduled_slot: datetime) -> dict[tuple[str, str], list[MercariItem]]:
+        """Process one fixed hourly slot and return new items keyed by recipient and keyword."""
         subscribers: dict[str, list[tuple[UserRepository, str, str]]] = defaultdict(list)
         for repository in self.repositories.all_repositories():
             for subscription in repository.subscriptions():
-                if subscription.last_check_time is None or subscription.last_check_time <= due_before:
+                if subscription.last_scheduled_slot is None or subscription.last_scheduled_slot < scheduled_slot:
                     subscribers[subscription.keyword].append((repository, subscription.keyword, subscription.unified_msg_origin))
 
         found: dict[tuple[str, str], list[MercariItem]] = defaultdict(list)
@@ -46,7 +46,7 @@ class MonitoringService:
             items = await self._search(keyword)
             checked_at = datetime.now(timezone.utc)
             for repository, _, umo in targets:
-                new_items = repository.save_scan(keyword, items, checked_at)
+                new_items = repository.save_scheduled_scan(keyword, items, scheduled_slot, checked_at)
                 if new_items:
                     found[(umo, keyword)].extend(new_items)
         return found
