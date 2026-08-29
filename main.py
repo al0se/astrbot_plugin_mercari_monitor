@@ -222,4 +222,6 @@ def _subscription_list_text(subscriptions) -> str:
 
 def _status_text(next_scheduled_at: datetime | None, subscriptions) -> str:
     next_time = "尚未启动" if next_scheduled_at is None else next_scheduled_at.strftime("%Y-%m-%d %H:%M:%S 北京时间")
-    return f"定时器下次检查：{next_time}\n当前启用订阅：{len(subscriptions)}"
+    lines = [f"定时器下次检查：{next_time}", f"当前启用订阅：{len(subscriptions)}"]
+    lines.extend(f"- {subscription.keyword}" for subscription in subscriptions)
+    return "\n".join(lines)
