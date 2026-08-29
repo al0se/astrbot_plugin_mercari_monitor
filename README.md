@@ -4,7 +4,7 @@
 
 ## 安装
 
-将此目录复制或重命名为 `AstrBot/data/plugins/astrbot_plugin_mercari_monitor/`，或在 AstrBot WebUI 的插件管理中从本地安装。AstrBot 会根据 `requirements.txt` 安装依赖。
+将此目录复制或重命名为 `AstrBot/data/plugins/astrbot_plugin_mercari_monitor/`，或在 AstrBot WebUI 的插件管理中从本地安装。插件直接使用 AstrBot Core 已有的 `requests` 和 `cryptography`，不安装会破坏核心依赖版本的旧 Mercari 包。
 
 安装后的数据位于：
 

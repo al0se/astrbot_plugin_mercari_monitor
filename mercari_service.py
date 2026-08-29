@@ -1,16 +1,17 @@
-"""Mercari query adapter used by the AstrBot plugin."""
+"""Newest-first Mercari Japan listing search without the legacy mercari package."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime, timezone
-from itertools import islice
+import uuid
 from typing import Any
 
 import requests
 
-from . import patches  # noqa: F401  # Install Mercari's DPoP/retry compatibility patch first.
-from mercari import MercariOrder, MercariSearchStatus, MercariSort, search
+from .patches import post_json
+
+SEARCH_URL = "https://api.mercari.jp/v2/entities:search"
 
 
 class MercariUpstreamError(RuntimeError):
@@ -44,31 +45,30 @@ def _as_datetime(value: Any) -> datetime:
 
 
 class MercariSearchService:
-    """Fetch newest on-sale Mercari Japan listings."""
+    """Fetch up to 100 newest on-sale listings through Mercari's web API."""
 
     def search(self, keyword: str, result_limit: int) -> list[MercariItem]:
         try:
-            raw_items = search(
-                keyword,
-                sort=MercariSort.SORT_CREATED_TIME,
-                order=MercariOrder.ORDER_DESC,
-                status=MercariSearchStatus.ON_SALE,
-            )
-            items: list[MercariItem] = []
-            for raw_item in islice(raw_items, result_limit):
-                item_id = str(getattr(raw_item, "id", "")).strip()
-                if not item_id:
-                    continue
-                items.append(
-                    MercariItem(
-                        id=item_id,
-                        title=str(getattr(raw_item, "productName", "")),
-                        price=int(getattr(raw_item, "price", 0) or 0),
-                        url=str(getattr(raw_item, "productURL", "")),
-                        created_time=_as_datetime(getattr(raw_item, "created", None)),
-                        image_url=getattr(raw_item, "imageURL", None),
-                    )
-                )
-            return items
+            response = post_json(SEARCH_URL, {
+                "userId": f"MERCARI_BOT_{uuid.uuid4()}", "pageSize": min(result_limit, 100),
+                "pageToken": "v1:0", "searchSessionId": f"MERCARI_BOT_{uuid.uuid4()}",
+                "indexRouting": "INDEX_ROUTING_UNSPECIFIED",
+                "searchCondition": {
+                    "keyword": keyword, "sort": "SORT_CREATED_TIME", "order": "ORDER_DESC",
+                    "status": ["STATUS_ON_SALE"], "excludeKeyword": "",
+                },
+                "withAuction": True,
+                "defaultDatasets": ["DATASET_TYPE_MERCARI", "DATASET_TYPE_BEYOND"],
+            })
         except requests.RequestException as error:
             raise MercariUpstreamError("Mercari search request failed") from error
+        return [_item_from_response(item) for item in response.get("items", []) if item.get("id")]
+
+
+def _item_from_response(item: dict[str, Any]) -> MercariItem:
+    thumbnails = item.get("thumbnails") or []
+    return MercariItem(
+        id=str(item["id"]), title=str(item.get("name", "")), price=int(item.get("price", 0) or 0),
+        url=f"https://jp.mercari.com/item/{item['id']}", created_time=_as_datetime(item.get("created")),
+        image_url=str(thumbnails[0]) if thumbnails else None,
+    )
