@@ -111,6 +111,16 @@ class UserRepository:
 
     def save_scan(self, keyword: str, items: list[MercariItem], checked_at: datetime) -> list[MercariItem]:
         """Save scan results and return items unseen by this user for this keyword."""
+        new_items = self.mark_seen_items(keyword, items, checked_at)
+        with self._connect() as connection:
+            connection.execute(
+                "UPDATE subscriptions SET last_check_time = ? WHERE keyword = ?",
+                (checked_at.isoformat(), keyword),
+            )
+        return new_items
+
+    def mark_seen_items(self, keyword: str, items: list[MercariItem], seen_at: datetime) -> list[MercariItem]:
+        """Add items to the monitor's seen set without changing its check time."""
         with self._connect() as connection:
             existing_ids = {
                 row["item_id"]
@@ -125,12 +135,8 @@ class UserRepository:
                     (item_id, keyword, title, price, url, image_url, created_time, first_seen_time)
                     VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
                     (item.id, keyword, item.title, item.price, item.url, item.image_url,
-                     item.created_time.isoformat(), checked_at.isoformat()),
+                     item.created_time.isoformat(), seen_at.isoformat()),
                 )
-            connection.execute(
-                "UPDATE subscriptions SET last_check_time = ? WHERE keyword = ?",
-                (checked_at.isoformat(), keyword),
-            )
         return new_items
 
     def save_manual_refresh(self, keyword: str, items: list[MercariItem], refreshed_at: datetime) -> None:

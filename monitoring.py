@@ -27,7 +27,9 @@ class MonitoringService:
         if repository.get_subscription(keyword) is None:
             raise KeyError(keyword)
         items = await self._search(keyword)
-        repository.save_manual_refresh(keyword, items, datetime.now(timezone.utc))
+        refreshed_at = datetime.now(timezone.utc)
+        repository.save_manual_refresh(keyword, items, refreshed_at)
+        repository.mark_seen_items(keyword, items, refreshed_at)
         return items
 
     async def search_now(self, keyword: str) -> list[MercariItem]:

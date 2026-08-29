@@ -37,7 +37,7 @@ def test_save_scan_only_returns_new_items(tmp_path):
     assert repository.save_scan("camera", [item("two")], NOW) == [item("two")]
 
 
-def test_manual_refresh_does_not_change_hourly_monitor_state(tmp_path):
+def test_manual_refresh_marks_items_seen_without_changing_hourly_check_time(tmp_path):
     repository = UserRepositoryFactory(tmp_path / "users").for_umo("Telegram:PrivateMessage:1")
     repository.subscribe("camera", "Telegram:PrivateMessage:1", NOW)
     repository.save_scan("camera", [item("baseline")], NOW)
@@ -48,4 +48,4 @@ def test_manual_refresh_does_not_change_hourly_monitor_state(tmp_path):
     after = repository.get_subscription("camera")
     assert after is not None and before is not None
     assert after.last_check_time == before.last_check_time
-    assert repository.save_scan("camera", [item("manual")], NOW) == [item("manual")]
+    assert repository.save_scan("camera", [item("manual")], NOW) == []
