@@ -1,0 +1,26 @@
+{
+  "check_interval_minutes": {
+    "type": "int",
+    "description": "检查间隔（分钟）",
+    "hint": "所有启用订阅每隔该时长检查一次；默认 60 分钟。",
+    "default": 60
+  },
+  "search_result_limit": {
+    "type": "int",
+    "description": "每个关键词检查的商品数",
+    "hint": "按最新上架顺序读取的最大商品数，范围 10 到 100。",
+    "default": 50
+  },
+  "max_push_items": {
+    "type": "int",
+    "description": "单次最多推送的新品数",
+    "hint": "超出数量会在消息中说明，所有新品仍会记录为已见。",
+    "default": 5
+  },
+  "check_on_startup": {
+    "type": "bool",
+    "description": "启动后立即检查",
+    "hint": "开启时，插件加载后会立即检查所有已订阅关键词。",
+    "default": false
+  }
+}
