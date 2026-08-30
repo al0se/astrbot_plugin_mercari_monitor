@@ -69,6 +69,12 @@ def _item_from_response(item: dict[str, Any]) -> MercariItem:
     thumbnails = item.get("thumbnails") or []
     return MercariItem(
         id=str(item["id"]), title=str(item.get("name", "")), price=int(item.get("price", 0) or 0),
-        url=f"https://jp.mercari.com/item/{item['id']}", created_time=_as_datetime(item.get("created")),
+        url=_item_url(item), created_time=_as_datetime(item.get("created")),
         image_url=str(thumbnails[0]) if thumbnails else None,
     )
+
+
+def _item_url(item: dict[str, Any]) -> str:
+    """Use the Shops route for Mercari Shops (BEYOND) listings."""
+    path = "shops/product" if item.get("itemType") == "ITEM_TYPE_BEYOND" or item.get("shop") else "item"
+    return f"https://jp.mercari.com/{path}/{item['id']}"
