@@ -37,16 +37,19 @@ def test_save_scan_only_returns_new_items(tmp_path):
     assert repository.save_scan("camera", [item("two")], NOW) == [item("two")]
 
 
-def test_manual_refresh_marks_items_seen_without_changing_hourly_check_time(tmp_path):
+def test_pending_items_are_not_seen_until_delivery_is_confirmed(tmp_path):
     repository = UserRepositoryFactory(tmp_path / "users").for_umo("Telegram:PrivateMessage:1")
     repository.subscribe("camera", "Telegram:PrivateMessage:1", NOW)
     repository.save_scan("camera", [item("baseline")], NOW)
     before = repository.get_subscription("camera")
 
-    repository.save_manual_refresh("camera", [item("manual")], NOW)
-    repository.mark_seen_items("camera", [item("manual")], NOW)
+    assert repository.queue_new_items("camera", [item("manual")], NOW) == [item("manual")]
+    assert repository.queue_new_items("camera", [item("manual")], NOW) == []
+    assert [notification.item for notification in repository.pending_notifications("camera")] == [item("manual")]
+    assert repository.confirm_notifications_sent("camera", ["manual"], NOW) == 1
 
     after = repository.get_subscription("camera")
     assert after is not None and before is not None
     assert after.last_check_time == before.last_check_time
-    assert repository.save_scan("camera", [item("manual")], NOW) == []
+    assert repository.pending_notifications("camera") == []
+    assert repository.queue_new_items("camera", [item("manual")], NOW) == []

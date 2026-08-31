@@ -20,6 +20,13 @@ class Subscription:
     last_scheduled_slot: datetime | None
 
 
+@dataclass(frozen=True)
+class PendingNotification:
+    keyword: str
+    item: MercariItem
+    queued_time: datetime
+
+
 class UserRepository:
     def __init__(self, path: Path) -> None:
         self.path = path
@@ -56,6 +63,19 @@ class UserRepository:
                 );
                 CREATE INDEX IF NOT EXISTS seen_items_keyword_idx
                     ON seen_items(keyword);
+                CREATE TABLE IF NOT EXISTS pending_notifications (
+                    item_id TEXT NOT NULL,
+                    keyword TEXT NOT NULL,
+                    title TEXT NOT NULL,
+                    price INTEGER NOT NULL,
+                    url TEXT NOT NULL,
+                    image_url TEXT,
+                    created_time TEXT NOT NULL,
+                    queued_time TEXT NOT NULL,
+                    PRIMARY KEY (item_id, keyword)
+                );
+                CREATE INDEX IF NOT EXISTS pending_notifications_keyword_idx
+                    ON pending_notifications(keyword, queued_time);
                 CREATE TABLE IF NOT EXISTS manual_refresh_items (
                     item_id TEXT NOT NULL,
                     keyword TEXT NOT NULL,
@@ -98,6 +118,8 @@ class UserRepository:
             changed = connection.execute(
                 "UPDATE subscriptions SET enabled = 0 WHERE keyword = ? AND enabled = 1", (keyword,)
             ).rowcount
+            if changed:
+                connection.execute("DELETE FROM pending_notifications WHERE keyword = ?", (keyword,))
         return changed == 1
 
     def subscriptions(self) -> list[Subscription]:
@@ -130,15 +152,84 @@ class UserRepository:
     def save_scheduled_scan(
         self, keyword: str, items: list[MercariItem], scheduled_slot: datetime, checked_at: datetime
     ) -> list[MercariItem]:
-        """Save one fixed hourly slot and return this user's unseen items."""
-        new_items = self.mark_seen_items(keyword, items, checked_at)
+        """Queue unseen items for one fixed hourly slot without marking them notified."""
         with self._connect() as connection:
+            new_items = self._queue_new_items(connection, keyword, items, checked_at)
             connection.execute(
                 """UPDATE subscriptions SET last_check_time = ?, last_scheduled_slot = ?
                 WHERE keyword = ?""",
                 (checked_at.isoformat(), scheduled_slot.isoformat(), keyword),
             )
         return new_items
+
+    def queue_new_items(self, keyword: str, items: list[MercariItem], queued_at: datetime) -> list[MercariItem]:
+        """Persist unseen items as pending; only delivery confirmation moves them to seen_items."""
+        with self._connect() as connection:
+            return self._queue_new_items(connection, keyword, items, queued_at)
+
+    def _queue_new_items(
+        self, connection: sqlite3.Connection, keyword: str, items: list[MercariItem], queued_at: datetime
+    ) -> list[MercariItem]:
+        known_ids = {
+            row["item_id"]
+            for row in connection.execute(
+                """SELECT item_id FROM seen_items WHERE keyword = ?
+                UNION SELECT item_id FROM pending_notifications WHERE keyword = ?""",
+                (keyword, keyword),
+            )
+        }
+        new_items = [item for item in items if item.id not in known_ids]
+        for item in new_items:
+            connection.execute(
+                """INSERT OR IGNORE INTO pending_notifications
+                (item_id, keyword, title, price, url, image_url, created_time, queued_time)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                (item.id, keyword, item.title, item.price, item.url, item.image_url,
+                 item.created_time.isoformat(), queued_at.isoformat()),
+            )
+        return new_items
+
+    def pending_notifications(self, keyword: str, limit: int = 0) -> list[PendingNotification]:
+        query = """SELECT item_id, keyword, title, price, url, image_url, created_time, queued_time
+        FROM pending_notifications WHERE keyword = ? ORDER BY queued_time, item_id"""
+        params: tuple[object, ...] = (keyword,)
+        if limit > 0:
+            query += " LIMIT ?"
+            params = (keyword, limit)
+        with self._connect() as connection:
+            rows = connection.execute(query, params).fetchall()
+        return [_pending_notification_from_row(row) for row in rows]
+
+    def pending_count(self, keyword: str) -> int:
+        with self._connect() as connection:
+            return connection.execute(
+                "SELECT COUNT(*) FROM pending_notifications WHERE keyword = ?", (keyword,)
+            ).fetchone()[0]
+
+    def confirm_notifications_sent(self, keyword: str, item_ids: list[str], sent_at: datetime) -> int:
+        """Move only successfully accepted outgoing items from the queue to the notified set."""
+        if not item_ids:
+            return 0
+        placeholders = ", ".join("?" for _ in item_ids)
+        with self._connect() as connection:
+            rows = connection.execute(
+                f"""SELECT item_id, title, price, url, image_url, created_time
+                FROM pending_notifications WHERE keyword = ? AND item_id IN ({placeholders})""",
+                (keyword, *item_ids),
+            ).fetchall()
+            for row in rows:
+                connection.execute(
+                    """INSERT OR IGNORE INTO seen_items
+                    (item_id, keyword, title, price, url, image_url, created_time, first_seen_time)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+                    (row["item_id"], keyword, row["title"], row["price"], row["url"], row["image_url"],
+                     row["created_time"], sent_at.isoformat()),
+                )
+            connection.execute(
+                f"DELETE FROM pending_notifications WHERE keyword = ? AND item_id IN ({placeholders})",
+                (keyword, *item_ids),
+            )
+        return len(rows)
 
     def mark_seen_items(self, keyword: str, items: list[MercariItem], seen_at: datetime) -> list[MercariItem]:
         """Add items to the monitor's seen set without changing its check time."""
@@ -201,4 +292,15 @@ def _subscription_from_row(row: sqlite3.Row) -> Subscription:
         last_scheduled_slot=(
             datetime.fromisoformat(row["last_scheduled_slot"]) if row["last_scheduled_slot"] else None
         ),
+    )
+
+
+def _pending_notification_from_row(row: sqlite3.Row) -> PendingNotification:
+    return PendingNotification(
+        keyword=row["keyword"],
+        item=MercariItem(
+            id=row["item_id"], title=row["title"], price=row["price"], url=row["url"],
+            image_url=row["image_url"], created_time=datetime.fromisoformat(row["created_time"]),
+        ),
+        queued_time=datetime.fromisoformat(row["queued_time"]),
     )

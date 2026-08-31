@@ -35,14 +35,13 @@ def test_check_all_coalesces_one_keyword_and_keeps_users_separate(tmp_path):
     service = FakeSearchService()
     monitor = MonitoringService(factory, service, result_limit=50)
 
-    result = asyncio.run(monitor.check_all(NOW))
+    asyncio.run(monitor.check_all(NOW))
 
     assert service.calls == [("camera", 50)]
-    assert set(result) == {
-        ("Telegram:PrivateMessage:1", "camera"),
-        ("Telegram:PrivateMessage:2", "camera"),
-    }
-    assert asyncio.run(monitor.check_all(NOW)) == {}
+    assert [entry.item.id for entry in first.pending_notifications("camera")] == ["new"]
+    assert [entry.item.id for entry in second.pending_notifications("camera")] == ["new"]
+    asyncio.run(monitor.check_all(NOW))
+    assert service.calls == [("camera", 50)]
 
 
 def test_next_hourly_slot_runs_even_if_the_previous_check_finished_after_the_hour(tmp_path):
@@ -53,10 +52,10 @@ def test_next_hourly_slot_runs_even_if_the_previous_check_finished_after_the_hou
     service = FakeSearchService()
     monitor = MonitoringService(factory, service, result_limit=50)
 
-    result = asyncio.run(monitor.check_all(NOW + timedelta(hours=1)))
+    asyncio.run(monitor.check_all(NOW + timedelta(hours=1)))
 
-    assert set(result) == {("Telegram:PrivateMessage:1", "camera")}
     assert service.calls == [("camera", 50)]
+    assert [entry.item.id for entry in repository.pending_notifications("camera")] == ["new"]
 
 
 def test_manual_refresh_returns_only_unseen_items_without_delaying_hourly_check(tmp_path):
@@ -70,3 +69,4 @@ def test_manual_refresh_returns_only_unseen_items_without_delaying_hourly_check(
     assert asyncio.run(monitor.refresh_subscription(repository, "camera"))[0].id == "new"
     assert asyncio.run(monitor.refresh_subscription(repository, "camera")) == []
     assert repository.get_subscription("camera").last_check_time == before.last_check_time
+    assert [entry.item.id for entry in repository.pending_notifications("camera")] == ["new"]

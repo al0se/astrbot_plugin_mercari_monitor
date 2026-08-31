@@ -94,7 +94,14 @@ class MercariMonitor(Star):
             except MercariUpstreamError:
                 yield event.plain_result("Mercari 查询暂时失败，请稍后重试。")
                 return
-            yield event.plain_result(_refresh_text(keyword, new_items))
+            subscription = repository.get_subscription(keyword)
+            sent_count, pending_count, delivered = await self._deliver_pending(repository, subscription)
+            if delivered:
+                yield event.plain_result(_refresh_delivery_text(keyword, len(new_items), sent_count, pending_count))
+            else:
+                yield event.plain_result(
+                    f"「{keyword}」发现 {len(new_items)} 个新品，但推送暂时失败；将于后续整点自动重试。"
+                )
         elif action in {"订阅列表", "列表"}:
             subscriptions = repository.subscriptions()
             yield event.plain_result(_subscription_list_text(subscriptions))
@@ -129,13 +136,46 @@ class MercariMonitor(Star):
 
     async def _run_scheduled_check(self, scheduled_slot: datetime) -> None:
         logger.info("Mercari scheduled check started for slot %s", scheduled_slot.isoformat())
-        results = await self.monitor.check_all(scheduled_slot)
-        for (umo, keyword), items in results.items():
-            await self.context.send_message(
-                umo,
-                MessageChain().message(_new_items_text(keyword, items, int(self.config["max_push_items"]))),
+        await self.monitor.check_all(scheduled_slot)
+        delivered = 0
+        for repository in self.repositories.all_repositories():
+            for subscription in repository.subscriptions():
+                _, _, accepted = await self._deliver_pending(repository, subscription)
+                delivered += int(accepted)
+        logger.info("Mercari scheduled slot completed; pushed to %d keyword subscriptions", delivered)
+
+    async def _deliver_pending(self, repository: UserRepository, subscription) -> tuple[int, int, bool]:
+        """Send one queued keyword notification and mark it seen only after acceptance."""
+        limit = int(self.config["max_push_items"])
+        pending = repository.pending_notifications(subscription.keyword, limit)
+        if not pending:
+            return 0, 0, True
+        items = [notification.item for notification in pending]
+        remaining = repository.pending_count(subscription.keyword) - len(items)
+        message = _new_items_text(subscription.keyword, items, 0)
+        if remaining:
+            message += f"\n另有 {remaining} 个新品仍在待发送队列中，将在后续整点继续推送。"
+        try:
+            await self.context.send_message(subscription.unified_msg_origin, MessageChain().message(message))
+        except Exception:
+            logger.exception(
+                "Mercari notification delivery failed: keyword=%s recipient=%s",
+                subscription.keyword,
+                subscription.unified_msg_origin,
             )
-        logger.info("Mercari scheduled slot completed; pushed to %d keyword subscriptions", len(results))
+            return 0, repository.pending_count(subscription.keyword), False
+        sent_count = repository.confirm_notifications_sent(
+            subscription.keyword, [item.id for item in items], datetime.now(timezone.utc)
+        )
+        pending_count = repository.pending_count(subscription.keyword)
+        logger.info(
+            "Mercari notification delivered: keyword=%s recipient=%s items=%d remaining=%d",
+            subscription.keyword,
+            subscription.unified_msg_origin,
+            sent_count,
+            pending_count,
+        )
+        return sent_count, pending_count, True
 
     async def terminate(self) -> None:
         if self._scheduler_task is None:
@@ -211,14 +251,13 @@ def _new_items_text(keyword: str, items: list[MercariItem], max_push_items: int)
     return _items_text(f"🔔 Mercari「{keyword}」发现 {len(items)} 个新品", items, limit)
 
 
-def _refresh_text(keyword: str, items: list[MercariItem]) -> str:
-    if not items:
-        return f"「{keyword}」刷新完成，没有发现新品。"
-    return _items_text(
-        f"🔄 Mercari「{keyword}」发现 {len(items)} 个新品",
-        items,
-        len(items),
-    )
+def _refresh_delivery_text(keyword: str, new_count: int, sent_count: int, pending_count: int) -> str:
+    if sent_count:
+        suffix = f"另有 {pending_count} 个新品待发送。" if pending_count else ""
+        return f"「{keyword}」刷新完成，已推送 {sent_count} 个新品。{suffix}"
+    if new_count:
+        return f"「{keyword}」刷新完成，发现 {new_count} 个新品，等待发送。"
+    return f"「{keyword}」刷新完成，没有发现新品。"
 
 
 def _items_text(title: str, items: list[MercariItem], limit: int) -> str:
